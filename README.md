@@ -1,4 +1,4 @@
-Studies on laser dst files usign [elmonk](https://gitlab.cern.ch/blenzi/elmonk) utilities
+Studies on laser dst files using [elmonk](https://gitlab.cern.ch/blenzi/elmonk) utilities
 
 ```
 git clone ssh://git@gitlab.cern.ch:7999/fcouderc/elmonk.git
