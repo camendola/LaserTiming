@@ -88,30 +88,33 @@ histories = histories.drop(columns=['TT', 'strip','Xtal', 'xtal_ecalic_id','inde
 histories = histories.T
 print(histories)
 
-list_groups = []
 
-first_run = histories.reset_index().run.tolist()[0]
-first = histories.copy().reset_index()
-first = first[((first["run"] == first_run) & (first["seq"] == 0))]
-first = first.set_index("date","run")
+if args.single:
+    list_groups = []
 
-with tqdm(total=histories.groupby("run").ngroups, unit='entries') as pbar:
-    for run, rgroup in histories.groupby("run"):
-        rgroup = rgroup.reset_index().set_index("date","run")
-        rgroup = rgroup.T.sub(first.T[first.T.columns[0]], axis = 0).T
-        rgroup["run"] = run
-        list_groups.append(rgroup)
-        if not os.path.exists("/eos/home-c/camendol/www/LaserTiming/blue_FEDs_sub/"+str(FED)):
-            os.makedirs("/eos/home-c/camendol/www/LaserTiming/blue_FEDs_sub/"+str(FED))
-            shutil.copy("/eos/home-c/camendol/www/index.php","/eos/home-c/camendol/www/LaserTiming/blue_FEDs_sub/"+str(FED))
-        for seq, sgroup in rgroup.groupby("seq"):
-            sgroup = sgroup.reset_index().set_index("date").drop(columns=['seq','run']).T.reset_index()
-            sgroup = sgroup.astype({"iphi": "int", "ieta":"int", sgroup.columns[-1] : "float"})
-            sgroup.pivot_table(columns = "iphi", index = "ieta", values = sgroup.columns[-1]).to_csv("/eos/home-c/camendol/www/LaserTiming/blue_FEDs_sub/"+str(FED)+"/"+str(FED)+"_"+str(run)+"_"+str(seq)+".txt")
-            list_groups.append(sgroup)
-        pbar.update(1)
+    first_run = histories.reset_index().run.tolist()[0]
+    first = histories.copy().reset_index()
+    first = first[((first["run"] == first_run) & (first["seq"] == 0))]
+    first = first.set_index("date","run")
 
-del list_groups
+    with tqdm(total=histories.groupby("run").ngroups, unit='entries') as pbar:
+        for run, rgroup in histories.groupby("run"):
+            rgroup = rgroup.reset_index().set_index("date","run")
+            #rgroup = rgroup.T.sub(first.T[first.T.columns[0]], axis = 0).T
+            #rgroup["run"] = run
+            list_groups.append(rgroup)
+            if not os.path.exists("/eos/home-c/camendol/www/LaserTiming/blue_FEDs_sub/"+str(FED)):
+                os.makedirs("/eos/home-c/camendol/www/LaserTiming/blue_FEDs_sub/"+str(FED))
+                shutil.copy("/eos/home-c/camendol/www/index.php","/eos/home-c/camendol/www/LaserTiming/blue_FEDs_sub/"+str(FED))
+            for seq, sgroup in rgroup.groupby("seq"):
+                sgroup = sgroup.reset_index().set_index("date").drop(columns=['seq','run']).T.reset_index()
+                sgroup = sgroup.astype({"iphi": "int", "ieta":"int", sgroup.columns[-1] : "float"})
+                sgroup.pivot_table(columns = "iphi", index = "ieta", values = sgroup.columns[-1]).to_csv("/eos/home-c/camendol/www/LaserTiming/blue_FEDs_sub/"+str(FED)+"/"+str(FED)+"_"+str(run)+"_"+str(seq)+".txt")
+                list_groups.append(sgroup)
+
+    pbar.update(1)
+
+    del list_groups
 
 
 histories = histories.reset_index().set_index("date").drop(columns=['seq','run']).T
