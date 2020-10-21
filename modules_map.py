@@ -16,14 +16,13 @@ import matplotlib as mpl
 mpl.rcParams['axes.linewidth'] = 2
 mpl.rcParams['axes.formatter.useoffset'] = False
 
-from elmonk.common import HdfLaser
 from elmonk.common.helper import scalar_to_list, make_index
 import seaborn as sns
 
-import ecalic
-
 import argparse
 from tqdm import tqdm
+
+import modules.load_hdf as load_hdf
 
 parser = argparse.ArgumentParser(description='Command line parser of plotting options')
 
@@ -31,6 +30,7 @@ parser.add_argument('--fed',    dest='fed',type=int, help='fed', default=612)
 parser.add_argument('--single', dest='single', help='write single sequence and run', action='store_true')
 parser.add_argument('--write',  dest='write',  help='write hdf', default=False,  action ='store_true')
 parser.add_argument('--long',   dest='long',   help='use only longest run', default=False,  action ='store_true')
+parser.add_argument('--apd',    dest='apd',    help='apd_pn maps', default=False,  action ='store_true')
 
 args = parser.parse_args()
 
@@ -39,64 +39,20 @@ FED = args.fed
 year = 2018
 basedir = Path(f'/eos/cms/store/group/dpg_ecal/alca_ecalcalib/laser/dst.hdf')
 
-workdir = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/tables/"
+if args.apd:
+    workdir = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/tables_APD_PN/"
+else:
+    workdir = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/tables/"
+
 filename = workdir + "FED_"+str(FED)+".hdf"
 
 print(filename)                                                                                                                        
-if ((not os.path.isfile(filename)) or args.write):
-    data = HdfLaser(basedir / f'{year}/dstUL_db.{year}.hdf5')
-    period = [f'{year}-04-01',f'{year}-12-31']
-    
-    #apply mask broken channels 2018
-    status = ecalic.xml('../elmonk/etc/data/ecalChannelStatus_run324773.xml',type='status').icCMS()
-    good_channels = status.iov.mask(status['ic']!=0).dropna(how='all')
-    xtals = data.xtal_idx('FED == '+str(FED)).intersection(good_channels.index)
-    
-    histories = data.xtal_history(iov_idx=data.iov_idx(period),xtal_idx=xtals, xtal_property='tAPD')
+histories = load_hdf.load_history(filename, year, args.write, basedir, FED, "APD_PN" if args.apd else "tAPD")
+histories = histories.reset_index().set_index(["date","seq","run"]).T.reset_index()
+histories = load_hdf.append_idxs(histories).T
 
-    run_seq = data.iov_idx_to_run_seq(data.iov_idx(period)['iov_idx'].values)
-    histories[["run","seq"]] = np.array(run_seq)
-    histories = histories.reset_index().set_index(["date", "run", "seq"])
-    histories.to_hdf(filename, key= "hist", mode = "w")
-else: 
-    histories = pd.read_hdf(filename,key = "hist", mode = "r")
-
-
-histories = histories.reset_index().set_index(["date","seq","run"])
-histories = histories.T.reset_index()
-
-histories['ieta']    = histories.set_index('xtal_ecalic_id').index.map(ecalic.geom.ix) 
-histories['iphi']    = histories.set_index('xtal_ecalic_id').index.map(ecalic.geom.iy) 
-
-#add sides mask
-side1 = (((histories['ieta'] > 0) & (histories['ieta'] > 5) & ((histories['iphi'] - 1).mod(20) + 1 > 10)) | ((histories['ieta'] < 0) & (histories['ieta'] < - 5) & ((histories['iphi'] - 1).mod(20) + 1 < 11)))
-histories['side'] = np.where(side1, 1, 0)
-
-#make xtal_id as defined in dst files 
-histories['TT']      = histories.set_index('xtal_ecalic_id').index.map(ecalic.geom.ccu)   
-histories['strip']   = histories.set_index('xtal_ecalic_id').index.map(ecalic.geom.strip) 
-histories['Xtal']    = histories.set_index('xtal_ecalic_id').index.map(ecalic.geom.Xtal)  
-histories["xtal_id"] = (histories['TT'] - 1) * 25 + (histories['strip'] - 1) * 5 + histories['Xtal'] - 1
-
-#histories: t_xtal, full runs
-histories = histories.reset_index().set_index(["ieta", "iphi", "xtal_id", "side"])
-histories = histories.drop(columns=['TT', 'strip','Xtal', 'xtal_ecalic_id','index'])
-
-histories = histories.T
-
-#get matacq tstart
-matacq = pd.read_hdf((basedir / f'{year}/dstUL_db.{year}.hdf5'), 'Matacq')
-matacq = matacq[(matacq["FED"] == FED)]
-
-histories["tstart0"]  = histories.reset_index().set_index(["run","seq"]).index.map(matacq[(matacq["side"] == 0)].set_index(["run", "seq"]).tstart)
-histories["tstart1"]  = histories.reset_index().set_index(["run","seq"]).index.map(matacq[(matacq["side"] == 1)].set_index(["run", "seq"]).tstart)
-
-#convert to ns and subtract matacq for side 1 and 0 
-histories.iloc[:, :-2] = histories.iloc[:, :-2] * 25 #conv times to ns (except for matacq columns)
-idx = pd.IndexSlice
-histories.loc[:, idx[:,:,:,(histories.columns.get_level_values('side') == 1)]] = histories.sub(histories.tstart1, axis = 0) + 1390
-histories.loc[:, idx[:,:,:,(histories.columns.get_level_values('side') == 0)]] = histories.sub(histories.tstart0, axis = 0) + 1390
-histories = histories.drop(columns = ["tstart1", "tstart0"])
+#correct blue laser timing by matacq tstart
+if not args.apd: histories = load_hdf.subtract_tmatacq(histories, year, basedir, FED)
 
 if args.long: 
     bylenght = histories.copy().reset_index()
@@ -114,11 +70,11 @@ first = histories.copy().reset_index().set_index("date")
 first = first[((first["run"] == first_run) & (first["seq"] == 0))]
 first = first.reset_index().set_index(["date", "run","seq"])
 
-#write indivitual .txt files for each
+#write indivitual .txt files for each run and sequence
 subfolder = ""
 if args.long: subfolder = str(longest_run)+"/"
 
-if args.single:
+if args.single and not args.apd:
     list_groups = []
     with tqdm(total=histories.groupby("run").ngroups, unit='entries') as pbar:
         for run, rgroup in histories.groupby("run"):
@@ -144,7 +100,10 @@ if args.single:
 
     del list_groups
 
-histories = histories.T.sub(first.T[first.T.columns[0]], axis = 0).T
+if args.apd:
+    histories = histories.T.div(first.T[first.T.columns[0]], axis = 0).T
+else:
+    histories = histories.T.sub(first.T[first.T.columns[0]], axis = 0).T
 
 #fig, ax = plt.subplots()
 #histories[(histories[histories.columns[1000]] > -200) & (histories[histories.columns[1000]] < 200)].hist(column = histories.to_numpy().flatten(), bins = 100, ax = ax)
@@ -168,20 +127,24 @@ histories = histories.reset_index()
 trimmed = histories[["xtal_id", "mean", "RMS", "min", "max", "ieta", "iphi"]]
     
 print(trimmed)
-
+directory="blue_FEDs"
+label= "[(t$_{xtal}$ - t$_{MATACQ}$)(t) - (t$_{xtal}$ - t$_{MATACQ}$)(0)] [ns]"
+if args.apd: 
+    directory="blue_FEDs_APD_PN"
+    label= "[(APD/PN)(t)/(APD/PN)(0)]"
 for var in ["min","max", "RMS", "mean"]:
     plt.figure(figsize=(7,18))
-    ax = sns.heatmap(trimmed.pivot_table(columns = "iphi", index = "ieta", values = var).sort_index(ascending = False), cbar_kws={'label': var+" [(t$_{xtal}$ - t$_{MATACQ}$)(t) - (t$_{xtal}$ - t$_{MATACQ}$)(0)] [ns]"})
+    ax = sns.heatmap(trimmed.pivot_table(columns = "iphi", index = "ieta", values = var).sort_index(ascending = False), cbar_kws={'label': var+" "+label})
     
     ax.set(xlabel='i$\phi$', ylabel='i$\eta$')
-    if not os.path.exists("/eos/home-c/camendol/www/LaserTiming/blue_FEDs/"+subfolder+str(FED)):
-        os.makedirs("/eos/home-c/camendol/www/LaserTiming/blue_FEDs/"+subfolder+str(FED))
-    shutil.copy("/eos/home-c/camendol/www/index.php","/eos/home-c/camendol/www/LaserTiming/blue_FEDs/"+subfolder)
-    shutil.copy("/eos/home-c/camendol/www/index.php","/eos/home-c/camendol/www/LaserTiming/blue_FEDs/"+subfolder+str(FED))
+    if not os.path.exists("/eos/home-c/camendol/www/LaserTiming/"+directory+"/"+subfolder+str(FED)):
+        os.makedirs("/eos/home-c/camendol/www/LaserTiming/"+directory+"/"+subfolder+str(FED))
+    shutil.copy("/eos/home-c/camendol/www/index.php","/eos/home-c/camendol/www/LaserTiming/"+directory+"/"+subfolder)
+    shutil.copy("/eos/home-c/camendol/www/index.php","/eos/home-c/camendol/www/LaserTiming/"+directory+"/"+subfolder+str(FED))
 
-    plt.savefig("/eos/home-c/camendol/www/LaserTiming/blue_FEDs/"+subfolder+str(FED)+"_"+str(var)+".pdf",bbox_inches='tight')
-    plt.savefig("/eos/home-c/camendol/www/LaserTiming/blue_FEDs/"+subfolder+str(FED)+"_"+str(var)+".png",bbox_inches='tight')
-    trimmed.pivot_table(columns = "iphi", index = "ieta", values = var).to_csv("/eos/home-c/camendol/www/LaserTiming/blue_FEDs/"+subfolder+str(FED)+"_"+str(var)+".txt")
+    plt.savefig("/eos/home-c/camendol/www/LaserTiming/"+directory+"/"+subfolder+str(FED)+"_"+str(var)+".pdf",bbox_inches='tight')
+    plt.savefig("/eos/home-c/camendol/www/LaserTiming/"+directory+"/"+subfolder+str(FED)+"_"+str(var)+".png",bbox_inches='tight')
+    trimmed.pivot_table(columns = "iphi", index = "ieta", values = var).to_csv("/eos/home-c/camendol/www/LaserTiming/"+directory+"/"+subfolder+str(FED)+"_"+str(var)+".txt")
 
 
 
