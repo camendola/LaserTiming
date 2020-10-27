@@ -19,6 +19,7 @@ def load_history(filename, year, write, basedir, FED, property = 'tAPD'):
                 run_seq = data.iov_idx_to_run_seq(data.iov_idx(period)['iov_idx'].values)
                 histories[["run","seq"]] = np.array(run_seq)
                 histories = histories.reset_index().set_index(["date", "run", "seq"])
+                print("Writing to "+filename)
                 histories.to_hdf(filename, key= "hist", mode = "w")
         else: 
                 histories = pd.read_hdf(filename,key = "hist", mode = "r")
@@ -26,7 +27,7 @@ def load_history(filename, year, write, basedir, FED, property = 'tAPD'):
         return histories
 
 
-def append_idxs(df, ch = -1):
+def append_idxs(df, ch = -1, ietamin = -999, ietamax = -999):
         """
         Appends ieta, iphi, side, TT, strip, Xtal, xtal_id.
         The dataframe must be given in the format:
@@ -55,6 +56,8 @@ def append_idxs(df, ch = -1):
         df["xtal_id"] = (df['TT'] - 1) * 25 + (df['strip'] - 1) * 5 + df['Xtal'] - 1
 
         if ch > -1: df = df[(df["xtal_id"] == ch)]        
+        if ietamin > -999: df = df[(df["ieta"] >= ietamin)]        
+        if ietamax > -999: df = df[(df["ieta"] <= ietamax)]        
 
         df = df.reset_index().set_index(["ieta", "iphi", "xtal_id", "side"])
         df = df.drop(columns=['TT', 'strip','Xtal', 'xtal_ecalic_id','index'])

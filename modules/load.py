@@ -88,15 +88,15 @@ def load_dst(dst_name, isGreen, ch = -1):
     return db
 
 
-def load_dst_firstline(dst_name, isGreen, ch = -1):
-    info = pd.read_csv(dst_name, header=None,sep = ' ', nrows = 1, usecols = [0, 3, 10, 13, 14], names=['run','time','bfield','temperature','TCDS'])
+def load_dst_firstline(dst_name, isGreen):
+    info = pd.read_csv(dst_name, header=None,sep = ' ', nrows = 1, usecols = [0, 3, 10, 13, 14], names=['run','time','bfield','temperature','TCDS'],  engine='python')
     info['time'] = pd.to_datetime(info['time'], unit='s')
+    info['seq']  = int(os.path.basename(dst_name).split('.')[1])
     return info
 
 
-def load_ch_firstline(df_dstFiles, ch, year, green = False, run = -1, fed = -1): 
-    filename = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/firstline_"+str(year)+"_"+str(fed)+"_"+str(ch)+".hdf"
-    #print(filename)
+def load_firstline(df_dstFiles, year, green = False, run = -1, fed = -1, runlist = []): 
+    filename = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/firstline_"+str(year)+"_"+str(fed)+".hdf"
     if not os.path.isfile(filename): 
         s_name = 'fname'
         s_fed = 'FED'
@@ -108,29 +108,28 @@ def load_ch_firstline(df_dstFiles, ch, year, green = False, run = -1, fed = -1):
         if (fed > -1): df_dstFiles = df_dstFiles[df_dstFiles[s_fed] == fed]
         
         if green: 
-            these_dstFiles = df_dstFiles[s_name].str.replace('.447.','.527.')
-            these_dstFiles = these_dstFiles[these_dstFiles.map(os.path.isfile)]
+            df_dstFiles[s_name] = df_dstFiles[s_name].str.replace('.447.','.527.')
 
-        else: 
-            these_dstFiles = df_dstFiles[df_dstFiles[s_name].map(os.path.isfile)][s_name]
-
-        these_dstFiles = these_dstFiles[(these_dstFiles.map(os.path.getsize) > 0.)]
-
-        these_fed = df_dstFiles[s_fed] 
-        df_these_fed = pd.DataFrame({'index':these_fed.index, s_fed:these_fed.values})
+        df_dstFiles = df_dstFiles[(df_dstFiles[s_name].map(os.path.isfile))]
+        df_dstFiles = df_dstFiles[(df_dstFiles[s_name].map(os.path.getsize) > 0.)]
+                                
+        print(df_dstFiles.shape)
         df_chunk_info = []
-
-        with tqdm(total=len(these_dstFiles), unit='entries') as pbar:
-            for i, block in enumerate(these_dstFiles):
-                db = load_dst_firstline(block, green, ch)
+        print("Writing to " + filename)
+        with tqdm(total=len(df_dstFiles[s_name]), unit='entries') as pbar:
+            for i, block in enumerate(df_dstFiles[s_name]):
+                db = load_dst_firstline(block, green)
                 df_chunk_info.append(db)
                 pbar.update(1)
 
         df_info = pd.concat(df_chunk_info, axis = 0)
-        df_info.index = pd.RangeIndex(len(df_these_fed.index))
-        df_info['FED'] = df_these_fed[s_fed]
+        df_info.index = df_dstFiles.index
+        print (df_info.shape)
+        df_info['FED'] = df_dstFiles[s_fed]
         df_info.to_hdf(filename, key="firstline", mode = "w")        
     else: 
         df_info = pd.read_hdf(filename, key="firstline", mode = "r")
+    print(df_info)
 
+    if len(runlist) > 0: df_info = df_info[df_info["run"].isin(runlist)]
     return df_info
