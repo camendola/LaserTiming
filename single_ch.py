@@ -23,8 +23,7 @@ mpl.rcParams['ytick.direction'] = 'in'
 mpl.rcParams["ytick.right"] = True
 mpl.rcParams["xtick.top"] = True
 
-from elmonk.common.helper import scalar_to_list, make_index
-import seaborn as sns
+#from elmonk.common.helper import scalar_to_list, make_index
 
 import argparse
 from tqdm import tqdm
@@ -33,7 +32,11 @@ import modules.load_hdf as load_hdf           # methods for histories from hdf f
 import modules.load as load                   # methods for dst files 
 import modules.write_csv as write_csv        
 
-import scipy.signal
+
+
+def linear_fit(x, b, m):
+    y = b + m * x
+    return y
 
 parser = argparse.ArgumentParser(description='Command line parser of plotting options')
 
@@ -43,7 +46,7 @@ parser.add_argument('--rmin',    dest='rmin',type=int, help='rmin', default=None
 parser.add_argument('--rmax',    dest='rmax',type=int, help='rmax', default=None)
 parser.add_argument('--ietamin', dest='ietamin',type=int, help='ietamin', default=-999)
 parser.add_argument('--ietamax', dest='ietamax',type=int, help='ietamax', default=-999)
-parser.add_argument('--long',    dest='long',   help='use only longest run', default=False,  action ='store_true')
+parser.add_argument('--dump',    dest='dump',   help='dump tables', default=False,  action ='store_true')
 parser.add_argument('--show',    dest='show',   help='show plots', default=False,  action ='store_true')
 
 args = parser.parse_args()
@@ -71,15 +74,25 @@ for FED in FEDs:
     #get timing
     histories_time = pd.read_hdf(filename,key = "hist", mode = "r")
     histories_time = load_hdf.skim_history(histories_time, "time", year, args.rmin, args.rmax, args.ch, args.ietamin, args.ietamax, basedir, FED, "b")
+    if args.ietamin > -999  or args.ietamax > -999:   
+        histories_time = histories_time.reset_index().set_index(["date","run", "seq"]).T.reset_index().set_index("xtal_id").drop(columns = ["side", "iphi", "ieta"]).T
+        histories_time = histories_time.reset_index().set_index(["date","run", "seq"]).stack().reset_index().set_index(["date","run", "seq", "xtal_id"]) #stack time values
+
+    #merge timing and apd/pn
     tables.append(histories_time)
 
     #get apd/pn
     histories_APD = pd.read_hdf(filename.replace("tables", "tables_APD_PN"),key = "hist", mode = "r")
     histories_APD = load_hdf.skim_history(histories_APD, "APD_PN", rmin = args.rmin, rmax = args.rmax,ch = args.ch, ietamin = args.ietamin, ietamax = args.ietamax)
+    if args.ietamin > -999  or args.ietamax > -999:   
+        histories_APD = histories_APD.reset_index().set_index(["date","run", "seq"]).T.reset_index().set_index("xtal_id").drop(columns = ["side", "iphi", "ieta"]).T
+        histories_APD = histories_APD.reset_index().set_index(["date","run", "seq"]).stack().reset_index().set_index(["date","run", "seq", "xtal_id"]) #stack APD_PN values
+
     tables.append(histories_APD)
-    
+
     #merge timing and apd/pn
     histories = pd.concat(tables,axis=1,keys=['time','APD_PN']).swaplevel(0,1,axis=1).sort_index(axis=1)
+
     histories = histories[(histories > -5) & (histories < 5)] 
     del tables
     
@@ -104,11 +117,16 @@ for FED in FEDs:
     histories["TCDS"] = histories.reset_index().set_index(["run","seq"]).index.map(df_firstline.reset_index().set_index(["run", "seq"]).TCDS)/1000000. # LHC freq [MHz]
     
     histories = histories.reset_index().set_index("date").drop(columns=['seq','run'])
-    histories.columns = ["temperature", "APD_PN", "time","TCDS"]
     all_histories.append(histories)
 
 histories = pd.concat(all_histories)
 del all_histories
+
+if args.ch > -1:                                 histories.columns = ["temperature", "APD_PN", "time","TCDS"]
+if args.ietamin > -999  or args.ietamax > -999:  histories.columns = ["temperature", "xtal_id","APD_PN", "time", "TCDS"]
+
+
+
 
 # plots
 rmin = str(runlist[0])
@@ -159,6 +177,7 @@ ax_scatter.text(pd.Timestamp('2018-04-20'),40.079,'beginning of collisions',
                 color='r')
 
 ax_scatter.tick_params(axis="x", labelrotation = 45)
+
 #if args.show:
     #plt.show()
     #plt.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/TCDS_2018_history.pdf", bbox_inches='tight')
@@ -255,30 +274,44 @@ ax.text(left, top, "FED: "+str(args.fed)+", ch: "+str(args.ch),
 
 ranges = [40.0784, 40.0785, 40.0789, 40.07897, 40.0790, 40.07915, 40.0793] #TCDS ranges
 slope = []
-offset = []
+u_slope = []
+intercept = []
+u_intercept = []
 TCDS = []
-
 for grname, gr in histories.groupby(pd.cut(histories.TCDS, ranges)):
     m = 0
     b = 0
+    u_m = 0
+    u_b = 0
     f = np.nan
     if not gr.empty:
         gr = gr.dropna()
-        f = gr["TCDS"].mean()
-        m, b= np.polyfit(gr["temperature"], gr["time"], 1)
-        print(m, b)
-        print(m*gr["temperature"] + b)
+        f = gr["TCDS"].mean()    
+        fit,cov=curve_fit(linear_fit,gr["temperature"],gr["time"])
+        b = fit[0]
+        m = fit[1]
+        u_b = sqrt(cov[0][0])
+        u_m = sqrt(cov[1][1])
+
         if b > 0: 
             flabel ="%.2f $\cdot$T +%.2f" % (m, b)
         else:
             flabel ="%.2f $\cdot$T %.2f" % (m, b)
         plt.plot(gr["temperature"], m*gr["temperature"] + b, color = sc.to_rgba(f), label = flabel)
     slope.append(m)
-    offset.append(b)
+    intercept.append(b)
+    u_slope.append(u_m)
+    u_intercept.append(u_b)
     TCDS.append(f)
+
+write_csv.save_fit(args.fed, args.ch, args.ietamin, args.ietamax, slope,u_slope, intercept, u_intercept, [0.,0.,0.,0.,0.,0.], TCDS, suffix= "split")
+
 plt.legend()
-#write_csv.save_fit(args.fed, args.ch, args.ietamin, args.ietamax, slope, offset, TCDS)
+
 if args.show:
+    #fig.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/fit_FED%d_ieta%d_314050-327764.pdf"%(args.fed, statistics.mean([args.ietamin, args.ietamax])), bbox_inches='tight')
+    #fig.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/fit_FED%d_ieta%d_314050-327764.png"%(args.fed, statistics.mean([args.ietamin, args.ietamax])), bbox_inches='tight')
+
     #fig.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/fit_FED%d_ch%d_314050-327764.pdf"%(args.fed, args.ch), bbox_inches='tight')
     #fig.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/fit_FED%d_ch%d_314050-327764.png"%(args.fed, args.ch), bbox_inches='tight')
     fig.show()
@@ -302,6 +335,7 @@ axs[0].text(left, top, "FED: "+str(args.fed)+", ch: "+str(args.ch),
 
 for ax in axs:
     ax.label_outer()
+
 plt.xticks(rotation=45)
 fig.tight_layout()
 if args.show:
