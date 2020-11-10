@@ -86,3 +86,41 @@ def subtract_tmatacq(df, year, basedir, FED):
         df.loc[:, idx[:,:,:,(df.columns.get_level_values('side') == 0)]] = df.sub(df.tstart0, axis = 0) + 1390 #1390 is some random offset
         df = df.drop(columns = ["tstart1", "tstart0"])
         return df
+
+
+def skim_history(df, table_content, year = -1, rmin = -1, rmax = -1, ch = -1, ietamin = -1, ietamax = -1, basedir = "", FED = -1, color = ""):
+        
+        """
+        Skims history based on channels and runs 
+        * timing history: subtract matacq for blue laser, subtract first run
+        * APD history:    divide by first run
+
+        Returns df in the format 
+        
+        side                                     0    1   ...
+        date                 run        seq 
+        2018-07-13 04:27:43  319579     0        XX   YY  ...
+        ...                  ...        ...      ...  ... ...
+        """
+        
+        df = df.reset_index().set_index(["date","seq","run"])
+        df = df.T.reset_index()
+        df = append_idxs(df, ch, ietamin, ietamax).T
+        
+        if table_content == "time" and color == "b": df = subtract_tmatacq(df, year, basedir, FED)
+        if rmin > -1 or rmax > -1:
+                df = df.reset_index().set_index(["date", "seq"])
+                if rmin > -1: df = df[(df["run"] >= rmin)]
+                if rmax > -1: df = df[(df["run"] <= rmax)]
+                df = df.reset_index().set_index(["date", "run","seq"])
+                
+        first_run = df.reset_index().run.drop_duplicates().sort_values().tolist()[0]
+        first = df.copy().reset_index().set_index("date")
+        first = first[((first["run"] == first_run) & (first["seq"] == 0))] #FIXME
+        first = first.reset_index().set_index(["date", "run","seq"])
+        
+        df = df.reset_index().set_index(["date", "run","seq"])
+        
+        if table_content == "time":   df = df.T.sub(first.T[first.T.columns[0]], axis = 0).T
+        if table_content == "APD_PN": df = df.T.divide(first.T[first.T.columns[0]], axis = 0).T
+        return df

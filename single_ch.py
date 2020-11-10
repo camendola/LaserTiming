@@ -33,6 +33,8 @@ import modules.load_hdf as load_hdf           # methods for histories from hdf f
 import modules.load as load                   # methods for dst files 
 import modules.write_csv as write_csv        
 
+import scipy.signal
+
 parser = argparse.ArgumentParser(description='Command line parser of plotting options')
 
 parser.add_argument('--fed',     dest='fed',type=int, help='fed', default=None)
@@ -64,57 +66,41 @@ all_histories = []
 for FED in FEDs:
     filename = workdir + "FED_"+str(FED)+".hdf"
 
+    tables = []
+
     #get timing
-    histories = pd.read_hdf(filename,key = "hist", mode = "r")
-    histories = histories.reset_index().set_index(["date","seq","run"])
-    histories = histories.T.reset_index()
-    histories = load_hdf.append_idxs(histories, args.ch, args.ietamin, args.ietamax).T
-    
-    #get matacq tstart
-    histories = load_hdf.subtract_tmatacq(histories, year, basedir, FED)
-    
-    first_run = histories.reset_index().run.drop_duplicates().sort_values().tolist()[0]
-    first = histories.copy().reset_index().set_index("date")
-    first = first[((first["run"] == first_run) & (first["seq"] == 0))]
-    first = first.reset_index().set_index(["date", "run","seq"])
-    
-    histories = histories.reset_index().set_index(["date", "run","seq"])
-    histories = histories.T.sub(first.T[first.T.columns[0]], axis = 0).T
-    
+    histories_time = pd.read_hdf(filename,key = "hist", mode = "r")
+    histories_time = load_hdf.skim_history(histories_time, "time", year, args.rmin, args.rmax, args.ch, args.ietamin, args.ietamax, basedir, FED, "b")
+    tables.append(histories_time)
+
     #get apd/pn
-    
     histories_APD = pd.read_hdf(filename.replace("tables", "tables_APD_PN"),key = "hist", mode = "r")
-    histories_APD = histories_APD.reset_index().set_index(["date","seq","run"]).T.reset_index()
-    histories_APD = load_hdf.append_idxs(histories_APD, args.ch, args.ietamax, args.ietamin).T
-    first = histories_APD.copy().reset_index().set_index("date")
-    first = first[((first["run"] == first_run) & (first["seq"] == 0))]
-    first = first.reset_index().set_index(["date", "run","seq"])
-    histories_APD = histories_APD.reset_index().set_index(["date", "run","seq"])
-    histories_APD = histories_APD.T.divide(first.T[first.T.columns[0]], axis = 0).T
+    histories_APD = load_hdf.skim_history(histories_APD, "APD_PN", rmin = args.rmin, rmax = args.rmax,ch = args.ch, ietamin = args.ietamin, ietamax = args.ietamax)
+    tables.append(histories_APD)
     
-    #merge apd/pn in histories
-    print (histories)
-    histories = pd.concat([histories,histories_APD],axis=1,keys=['time','APD_PN']).swaplevel(0,1,axis=1).sort_index(axis=1)
+    #merge timing and apd/pn
+    histories = pd.concat(tables,axis=1,keys=['time','APD_PN']).swaplevel(0,1,axis=1).sort_index(axis=1)
+    histories = histories[(histories > -5) & (histories < 5)] 
+    del tables
     
     #get temperature
     sequence = pd.read_hdf((basedir / f'{year}/dstUL_db.{year}.hdf5'), 'sequence')
     histories["temperature"] = histories.reset_index().set_index(["run","seq"]).index.map(sequence.set_index(["run", "seq"]).temperature)
     histories = histories.reset_index().set_index(["date", "run","seq","temperature"])
     
-    if args.rmin or args.rmax:
-        histories = histories.reset_index().set_index(["date", "seq","temperature"])
-        if args.rmin: histories = histories[(histories["run"] >= args.rmin)]
-        if args.rmax: histories = histories[(histories["run"] <= args.rmax)]
-        histories = histories.reset_index().set_index(["date", "run","seq","temperature"])
-        
-    runlist = histories.reset_index().run.drop_duplicates().sort_values().tolist()
-
-    #get TCDS - not in hdf: map directly from dst files for selected runs
-    dst_filelist = load.load_files(year)
-    df_firstline = load.load_firstline(dst_filelist, year, fed = args.fed, runlist = runlist)
-
-    histories = histories[(histories > -5) & (histories < 5)]
     
+    #get TCDS - not in hdf: map directly from dst files 
+    dst_filelist = load.load_files(year)
+    runlist = histories.reset_index().run.drop_duplicates().sort_values().tolist()
+    df_firstline = load.load_firstline(dst_filelist, year, fed = args.fed, runlist = runlist)
+    
+
+    if year == 2018:
+        #clean bunch of runs with bugged temperature
+        histories = histories.reset_index().set_index(["date","seq","temperature"])
+        histories = histories[(histories["run"] < 314344) | (histories["run"] > 314350)]
+        histories = histories.reset_index().set_index(["date","run", "seq","temperature"])
+
     histories["TCDS"] = histories.reset_index().set_index(["run","seq"]).index.map(df_firstline.reset_index().set_index(["run", "seq"]).TCDS)/1000000. # LHC freq [MHz]
     
     histories = histories.reset_index().set_index("date").drop(columns=['seq','run'])
@@ -130,18 +116,107 @@ rmax = str(runlist[-1])
 runlabel = rmin+"-"+rmax
 if (runlist[0] == runlist[-1]): runlabel = str(runlist[0])
 
+print("Mean temperature: ", histories["temperature"].mean(), " C")
+
+histories = histories.dropna()
+
+
 left = 0.
 right = 1.
 top = 1.
 
-fig, axs = plt.subplots(2, sharex=True, gridspec_kw={'hspace': 0})
+#### TCDS history + histogram pad
+leftp, width = 0.1, 0.65
+bottom, height = 0.1, 0.65
+spacing = 0.005
 
-axs[0].plot(histories["time"], marker=".", linestyle = "--")
+rect_scatter = [leftp, bottom, width, height]
+rect_histy = [leftp + width + spacing, bottom, 0.2, height]
+
+plt.figure(figsize=(10,5))
+
+ax_scatter = plt.axes(rect_scatter)
+ax_scatter.tick_params(direction='in', top=True, right=True)
+ax_histy = plt.axes(rect_histy)
+ax_histy.tick_params(direction='in', labelleft=False)
+
+ax_scatter.scatter(histories.reset_index().date,histories.TCDS,  marker=".",s = 50, linestyle = "--")
+ax_scatter.set_ylim(40.0784, 40.0793)
+
+ax_histy.hist(histories.TCDS, bins=100, orientation='horizontal')
+ax_histy.set_ylim(ax_scatter.get_ylim())
+ax_scatter.set_ylabel("TCDS freq. [MHz]")
+ax_scatter.axvline(pd.Timestamp('2018-04-20'), lw=2, color='red', alpha=0.4)
+ax_scatter.set_xlabel("date")
+ax_histy.text(right, top, runlabel,
+               horizontalalignment='right',
+               verticalalignment='bottom',
+               transform=ax_histy.transAxes)
+ax_scatter.text(pd.Timestamp('2018-04-20'),40.079,'beginning of collisions',
+                horizontalalignment='right',
+                verticalalignment='center',
+                rotation='vertical',
+                color='r')
+
+ax_scatter.tick_params(axis="x", labelrotation = 45)
+#if args.show:
+    #plt.show()
+    #plt.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/TCDS_2018_history.pdf", bbox_inches='tight')
+    #plt.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/TCDS_2018_history.png", bbox_inches='tight')
+    #input()
+
+### summary history plot: time, temperature, APD_PN, TCDS in colorbar
+fig, axs = plt.subplots(figsize= (10, 5), ncols=2, nrows=3, sharex=True, gridspec_kw={'hspace': 0, "width_ratios":[95,5], 'wspace': 0.001,})
+axs[0][0].plot(histories.reset_index().date,histories.time - histories.temperature*0.12 + 2.6,  marker=".", markersize = 1, linestyle = "--", zorder = 0)
+sc = axs[0][0].scatter(histories.reset_index().date,histories.time - histories.temperature*0.12 + 2.6,  marker=".",s = 50, c =  histories["TCDS"], linestyle = "--", zorder = 5)
+
+axs[0][0].set_ylabel("$\Delta (t_{xtal} - t_{MATACQ})$ [ns]")
+axs[1][0].plot(histories["temperature"], marker=".", linestyle = "--")
+axs[1][0].set_ylabel("T [$^\circ$C]")
+axs[2][0].plot(histories["APD_PN"], marker=".", linestyle = "--")
+axs[2][0].set_ylabel("Relative APD/PN")
+axs[1][0].set_xlabel("date")
+axs[0][0].text(right, top, runlabel,
+               horizontalalignment='right',
+               verticalalignment='bottom',
+               transform=axs[0][0].transAxes)
+axs[0][0].text(left, top, "FED: "+str(args.fed)+", ch: "+str(args.ch),
+               horizontalalignment='left',
+               verticalalignment='bottom',
+               transform=axs[0][0].transAxes)
+
+for i in range(0,2):
+    axs[i][0].tick_params(axis="x", labelbottom=0)
+for i in range(0,3):
+    axs[i][1].axis("off")
+print (axs[0][0])
+print (axs[0][0].get_children())
+
+fig.tight_layout()
+plt.colorbar(axs[0][0].collections[0], ax=axs[0][1], label='TCDS [MHz]')
+
+axs[2][0].tick_params(axis="x", labelrotation = 45)
+axs[2][0].autoscale(enable=True, axis='x', tight=True)
+
+if args.show:
+    fig.show()
+    #fig.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/summary_314050-327764.pdf", bbox_inches='tight')
+    #fig.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/summary_314050-327764.png", bbox_inches='tight')
+    input()
+
+
+### summary history plot: time, temperature, APD_PN
+fig, axs = plt.subplots(3, sharex=True, gridspec_kw={'hspace': 0})
+axs[0].plot(histories["time"] - (histories["temperature"])*0.12 + 2.6, marker=".", linestyle = "--")
+#axs[0].plot(histories["time"], marker=".", linestyle = "--")
 axs[0].set_ylabel("$\Delta (t_{xtal} - t_{MATACQ})$ [ns]")
 axs[1].plot(histories["temperature"], marker=".", linestyle = "--")
-axs[1].set_ylabel("T [$^\circ$C]")
-axs[1].set_xlabel("date")
-axs[0].text(right, top, rmin+"-"+rmax,
+axs[1].set_ylabel("T [$^\circ$ C]")
+
+axs[2].plot(histories["APD_PN"], marker=".", linestyle = "--")
+axs[2].set_ylabel("Relative APD/PN")
+axs[2].set_xlabel("date")
+axs[0].text(right, top, runlabel,
             horizontalalignment='right',
             verticalalignment='bottom',
             transform=axs[0].transAxes)
@@ -150,13 +225,18 @@ axs[0].text(left, top, "FED: "+str(args.fed)+", ch: "+str(args.ch),
             verticalalignment='bottom',
             transform=axs[0].transAxes)
 
-# hide x labels and tick labels for all but bottom plot
 for ax in axs:
     ax.label_outer()
 plt.xticks(rotation=45)
 fig.tight_layout()
-fig.show()
 
+if args.show:
+    fig.show()
+    #fig.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/summary_longrun_corr.pdf", bbox_inches='tight')
+    #fig.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/summary_longrun_corr.png", bbox_inches='tight')
+    input()
+
+### 2D plot and fits: time vs. temperature
 fig, ax = plt.subplots()
 sc = ax.scatter(histories["temperature"], histories["time"], marker = ".", s = 50, c =  histories["TCDS"])
 ax.set_xlabel("T [$^\circ$ C]")
@@ -164,7 +244,7 @@ ax.set_ylabel("$\Delta (t_{xtal} - t_{MATACQ})$ [ns]")
 cb = plt.colorbar(sc)
 cb.set_label('TCDS [MHz]')
 
-ax.text(right, top, rmin+"-"+rmax,
+ax.text(right, top, runlabel,
         horizontalalignment='right',
         verticalalignment='bottom',
         transform=ax.transAxes)
@@ -173,11 +253,11 @@ ax.text(left, top, "FED: "+str(args.fed)+", ch: "+str(args.ch),
         verticalalignment='bottom',
         transform=ax.transAxes)
 
-
-ranges = [40.0784, 40.0785, 40.0789, 40.0790, 40.07915, 40.0793] #TCDS ranges
+ranges = [40.0784, 40.0785, 40.0789, 40.07897, 40.0790, 40.07915, 40.0793] #TCDS ranges
 slope = []
 offset = []
 TCDS = []
+
 for grname, gr in histories.groupby(pd.cut(histories.TCDS, ranges)):
     m = 0
     b = 0
@@ -196,21 +276,22 @@ for grname, gr in histories.groupby(pd.cut(histories.TCDS, ranges)):
     slope.append(m)
     offset.append(b)
     TCDS.append(f)
-
-write_csv.save_fit(args.fed, args.ch, args.ietamin, args.ietamax, slope, offset, TCDS)
+plt.legend()
+#write_csv.save_fit(args.fed, args.ch, args.ietamin, args.ietamax, slope, offset, TCDS)
 if args.show:
-    plt.legend()
+    #fig.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/fit_FED%d_ch%d_314050-327764.pdf"%(args.fed, args.ch), bbox_inches='tight')
+    #fig.savefig("/eos/home-c/camendol/www/LaserTiming/blue_t_vs_T/fit_FED%d_ch%d_314050-327764.png"%(args.fed, args.ch), bbox_inches='tight')
     fig.show()
     
-    input()
+    
+### history plot: time, APD_PN
 fig, axs = plt.subplots(2, sharex=True, gridspec_kw={'hspace': 0})
-
-axs[0].plot(histories["time"], marker=".", linestyle = "--")
+axs[0].plot(histories["time"] - (histories["temperature"])*0.12 + 2.6, marker=".", linestyle = "--")
 axs[0].set_ylabel("$\Delta (t_{xtal} - t_{MATACQ})$ [ns]")
 axs[1].plot(histories["APD_PN"], marker=".", linestyle = "--")
 axs[1].set_ylabel("Relative APD/PN")
 axs[1].set_xlabel("date")
-axs[0].text(right, top, rmin+"-"+rmax,
+axs[0].text(right, top, runlabel,
             horizontalalignment='right',
             verticalalignment='bottom',
             transform=axs[0].transAxes)
@@ -219,19 +300,21 @@ axs[0].text(left, top, "FED: "+str(args.fed)+", ch: "+str(args.ch),
             verticalalignment='bottom',
             transform=axs[0].transAxes)
 
-# Hide x labels and tick labels for all but bottom plot.
 for ax in axs:
     ax.label_outer()
 plt.xticks(rotation=45)
 fig.tight_layout()
-fig.show()
+if args.show:
+    fig.show()
+    input()
 
+### 2D plot: time vs. APD_PN
 fig, ax = plt.subplots()
 sc = ax.scatter(histories["APD_PN"], histories["time"], marker=".", s=50, c =  histories["TCDS"])
 plt.colorbar(sc)
 ax.set_xlabel("Relative APD/PN")
 ax.set_ylabel("$\Delta (t_{xtal} - t_{MATACQ})$ [ns]")
-ax.text(right, top, rmin+"-"+rmax,
+ax.text(right, top, runlabel,
         horizontalalignment='right',
         verticalalignment='bottom',
         transform=ax.transAxes)
@@ -239,7 +322,9 @@ ax.text(left, top, "FED: "+str(args.fed)+", ch: "+str(args.ch),
         horizontalalignment='left',
         verticalalignment='bottom',
         transform=ax.transAxes)
-fig.show()
-input()
+
+if arg.show:
+    fig.show()
+    input()
 
 
