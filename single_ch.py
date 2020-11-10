@@ -138,6 +138,15 @@ print("Mean temperature: ", histories["temperature"].mean(), " C")
 
 histories = histories.dropna()
 
+if args.dump:
+    dump = histories["time"].to_frame()
+    dump["time_corr"] = histories.time - histories.temperature*0.12 + 2.6
+    dump["temperature"] = histories.temperature
+    dump["APD_PN"] = histories.APD_PN
+    dump["TCDS"] = histories.TCDS
+    dump = dump.reset_index()
+    dump["date"] = dump.date.values.astype(np.int64) // 10 ** 9 #c onvert to timestamp 
+    subset.to_csv("history_FED%d_ch%d.dat" %(FED, args.ch)
 
 left = 0.
 right = 1.
