@@ -22,6 +22,7 @@ ecal = ecalic.icCMS().iov
 ecal = ecal[(ecal['FED']    == args.fed) &
             (ecal['elecID'] == args.ch)]
 
+print ("{: <5} {: >5}".format("ecalic", ecal.index.values[0]))
 
 print ("{: <5} {: >5}".format("iphi", ecal['iy'].values[0]))
 print ("{: <5} {: >5}".format("ieta", ecal['ix'].values[0]))
