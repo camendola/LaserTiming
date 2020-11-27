@@ -10,7 +10,7 @@ import os.path
 def load_history(filename, year, write, basedir, FED, property = 'tAPD', green = False):
         if ((not os.path.isfile(filename)) or write):
                 if year == 2018: 
-                        fullpath = f'{year}/dstUL_db.{year}.hdf5' if not green else f'{year}/dst.{year}.w527.hdf5'
+                        fullpath = f'{year}/dst.{year}.w447.hdf5' if not green else f'{year}/dst.{year}.w527.hdf5'
 
                 data = HdfLaser(basedir / fullpath)
                 period = [f'{year}-04-01',f'{year}-12-31']
@@ -91,9 +91,9 @@ def load_tmatacq(df, year, basedir, FED, rmin, rmax, green = False):
         2018-07-13 04:27:43  319579     0        XX   YY  ...
         ...                  ...        ...      ...  ... ...
         """
-        fullpath = f'{year}/dstUL_db.{year}.hdf5' if not green else f'{year}/dst.{year}.w527.hdf5'
+        fullpath = f'{year}/dst.{year}.w447.hdf5' if not green else f'{year}/dst.{year}.w527.hdf5'
         matacq = pd.read_hdf((basedir / fullpath), 'Matacq')
-        print (matacq.columns)
+
         matacq = matacq[(matacq["FED"] == FED)]
 
         if rmin > -1 or rmax > -1:
@@ -106,7 +106,7 @@ def load_tmatacq(df, year, basedir, FED, rmin, rmax, green = False):
         df_tmatacq["tstart0"]  = df_tmatacq.reset_index().set_index(["run","seq"]).index.map(matacq[(matacq["side"] == 0)].set_index(["run", "seq"]).tstart)
         df_tmatacq["tstart1"]  = df_tmatacq.reset_index().set_index(["run","seq"]).index.map(matacq[(matacq["side"] == 1)].set_index(["run", "seq"]).tstart)
 
-        print(df_tmatacq[["tstart0", "tstart1"]])
+
         idx = pd.IndexSlice
 
         if any(df_tmatacq.columns.get_level_values('side') == 0):        df_tmatacq.loc[:, idx[:,:,:,(df_tmatacq.columns.get_level_values('side') == 0)]] = df_tmatacq.tstart0
@@ -115,7 +115,7 @@ def load_tmatacq(df, year, basedir, FED, rmin, rmax, green = False):
         df_tmatacq = df_tmatacq.drop(columns = ["tstart1", "tstart0"])
         return df_tmatacq
         
-def subtract_tmatacq(df, year, basedir, FED):
+def subtract_tmatacq(df, year, basedir, FED, green = False):
         """
         Subtracts the tstart of MATACQ - needed for blue laser.
         The dataframe must be given in the format:
@@ -125,8 +125,8 @@ def subtract_tmatacq(df, year, basedir, FED):
         2018-07-13 04:27:43  319579     0        XX   YY  ...
         ...                  ...        ...      ...  ... ...
         """
-
-        matacq = pd.read_hdf((basedir / f'{year}/dstUL_db.{year}.hdf5'), 'Matacq')
+        fullpath = f'{year}/dst.{year}.w447.hdf5' if not green else f'{year}/dst.{year}.w527.hdf5'
+        matacq = pd.read_hdf((basedir / fullpath), 'Matacq')
         matacq = matacq[(matacq["FED"] == FED)]
         df["tstart0"]  = df.reset_index().set_index(["run","seq"]).index.map(matacq[(matacq["side"] == 0)].set_index(["run", "seq"]).tstart)
         df["tstart1"]  = df.reset_index().set_index(["run","seq"]).index.map(matacq[(matacq["side"] == 1)].set_index(["run", "seq"]).tstart)
@@ -136,7 +136,6 @@ def subtract_tmatacq(df, year, basedir, FED):
         idx = pd.IndexSlice
         df.loc[:, idx[:,:,:,(df.columns.get_level_values('side') == 1)]] = df.sub(df.tstart1, axis = 0) + 1390 #1390 is some random offset
         df.loc[:, idx[:,:,:,(df.columns.get_level_values('side') == 0)]] = df.sub(df.tstart0, axis = 0) + 1390 #1390 is some random offset
-        print(df[["tstart0", "tstart1"]])
         df = df.drop(columns = ["tstart1", "tstart0"])
         return df
 

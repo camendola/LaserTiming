@@ -133,7 +133,7 @@ def load_firstline(df_dstFiles, year, green = False, run = -1, fed = -1, runlist
                 pbar.update(1)
                 
         df_info = pd.concat(df_chunk_info, axis = 0)
-        df_info.index = df_dstFiles.index
+        df_info.index = pd.RangeIndex(len(df_info.index))
         print (df_info.shape)
         df_info['FED'] = df_dstFiles[s_fed]
         df_info.to_hdf(filename, key="firstline", mode = "w")        
@@ -141,16 +141,19 @@ def load_firstline(df_dstFiles, year, green = False, run = -1, fed = -1, runlist
         df_info = pd.read_hdf(filename, key="firstline", mode = "r")
     print(df_info)
 
-    if len(runlist) > 0: df_info = df_info[df_info["run"].isin(runlist)]
-    return df_info
-
+    if len(runlist) > 0: 
+        if len(runlist) == 2:
+            df_info = df_info[(df_info["run"] <= runlist[-1]) & (df_info["run"] >= runlist[0]) ]
+        else:
+            df_info = df_info[df_info["run"].isin(runlist)]
+        return df_info
+            
 
 def load_dst_matacq(dst_name):
-    print(dst_name)
     dR = DstReader(dst_name)
     # columns definition in https://twiki.cern.ch/twiki/bin/viewauth/CMS/ECalLaserDSTfile
     matacq = dR.readMatacq(columns = [x for x in range (0,13) if not x == 5], names = ['Amplitude', 'riseTime', 'width50', 'width10', 'width5', 'integral', 'integral100', 'integral250', 'integral500', 'integral750', 'tmax', 'tstart'])
-    print (matacq)
+
     return matacq
 
 
@@ -172,13 +175,17 @@ def load_matacq(df_dstFiles, year, green = False, run = -1, fed = -1, runlist = 
                 pbar.update(1)
                 
         df = pd.concat(df_chunk, axis = 0)
-        df.index = df_dstFiles.index
-        print (df.shape)
-        df['FED'] = df_dstFiles[s_fed]
+        df.index = pd.RangeIndex(len(df.index))
+    
+        df['FED'] = fed
         df.to_hdf(filename, key="matacq", mode = "w")        
     else: 
-        df_info = pd.read_hdf(filename, key="matacq", mode = "r")
-    print(df)
+        df = pd.read_hdf(filename, key="matacq", mode = "r")
 
-    if len(runlist) > 0: df = df[df["run"].isin(runlist)]
-    return df_info
+
+    if len(runlist) > 0: 
+        if len(runlist) == 2:
+            df = df[(df["run"] <= runlist[-1]) & (df["run"] >= runlist[0])]        
+        else:
+            df = df[df["run"].isin(runlist)]
+    return df
