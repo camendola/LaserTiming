@@ -29,8 +29,11 @@ parser = argparse.ArgumentParser(description='Command line parser of plotting op
 parser.add_argument('--fed',    dest='fed',type=int, help='fed', default=612)
 parser.add_argument('--single', dest='single', help='write single sequence and run', action='store_true')
 parser.add_argument('--write',  dest='write',  help='write hdf', default=False,  action ='store_true')
-parser.add_argument('--long',   dest='long',   help='use only longest run', default=False,  action ='store_true')
+parser.add_argument('--rmin',   dest='rmin',type=int,  help='run min', default=0)
+parser.add_argument('--rmax',   dest='rmax',type=int,  help='run max', default=0)
 parser.add_argument('--apd',    dest='apd',    help='apd_pn maps', default=False,  action ='store_true')
+parser.add_argument('--green',    dest='green',    help='green laser', default=False,  action ='store_true')
+parser.add_argument('--long',    dest='long',    help='only take longest run', default=False,  action ='store_true')
 
 args = parser.parse_args()
 
@@ -39,20 +42,41 @@ FED = args.fed
 year = 2018
 basedir = Path(f'/eos/cms/store/group/dpg_ecal/alca_ecalcalib/laser/dst.hdf')
 
-if args.apd:
+workdir = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/tables/"
+if args.apd and not args.green:
     workdir = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/tables_APD_PN/"
-else:
-    workdir = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/tables/"
+elif args.green and not args.apd:
+    workdir = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/tables_green/"
+elif args.green and args.apd:
+    workdir = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/tables_green_APD_PN/"
 
 filename = workdir + "FED_"+str(FED)+".hdf"
 
-print(filename)                                                                                                                        
-histories = load_hdf.load_history(filename, year, args.write, basedir, FED, "APD_PN" if args.apd else "tAPD")
+if not os.path.exists(workdir):
+    os.makedirs(workdir)
+
+print(filename)                                                          
+
+prop = "tAPD"
+if args.green: prop = "tStart"
+if args.apd: prop = "APD_PN"
+print (prop)
+histories = load_hdf.load_history(filename, year, args.write, basedir, FED, prop, args.green)
 histories = histories.reset_index().set_index(["date","seq","run"]).T.reset_index()
 histories = load_hdf.append_idxs(histories).T
 
 #correct blue laser timing by matacq tstart
-if not args.apd: histories = load_hdf.subtract_tmatacq(histories, year, basedir, FED)
+if not args.green and not args.apd: histories = load_hdf.subtract_tmatacq(histories, year, basedir, FED)
+
+if args.rmin > 0 :
+    histories = histories.reset_index()
+    histories = histories[(histories["run"] > args.rmin)]
+    histories = histories.reset_index().set_index(["date", "run","seq"]).drop(columns=["index"])
+
+if args.rmax > 0 :
+    histories = histories.reset_index()
+    histories = histories[(histories["run"] < args.rmax)]
+    histories = histories.reset_index().set_index(["date", "run","seq"]).drop(columns=["index"])
 
 if args.long: 
     bylenght = histories.copy().reset_index()
@@ -66,6 +90,7 @@ else:
     histories = histories.reset_index().set_index(["date", "run","seq"])
 
 first_run = histories.reset_index().run.tolist()[0]
+last_run = histories.reset_index().run.tolist()[-1]
 first = histories.copy().reset_index().set_index("date")
 first = first[((first["run"] == first_run) & (first["seq"] == 0))]
 first = first.reset_index().set_index(["date", "run","seq"])
@@ -73,6 +98,7 @@ first = first.reset_index().set_index(["date", "run","seq"])
 #write indivitual .txt files for each run and sequence
 subfolder = ""
 if args.long: subfolder = str(longest_run)+"/"
+if args.rmin > 0 or args.rmax > 0: subfolder = str(first_run)+"_"+str(last_run)+"/"
 
 if args.single and not args.apd:
     list_groups = []
@@ -127,11 +153,18 @@ histories = histories.reset_index()
 trimmed = histories[["xtal_id", "mean", "RMS", "min", "max", "ieta", "iphi"]]
     
 print(trimmed)
+
+
 directory="blue_FEDs"
+
+if args.green:  directory="green_FEDs"
 label= "[(t$_{xtal}$ - t$_{MATACQ}$)(t) - (t$_{xtal}$ - t$_{MATACQ}$)(0)] [ns]"
-if args.apd: 
+if args.apd:
+
     directory="blue_FEDs_APD_PN"
+    if args.green:  directory="green_FEDs_APD_PN"
     label= "[(APD/PN)(t)/(APD/PN)(0)]"
+
 for var in ["min","max", "RMS", "mean"]:
     plt.figure(figsize=(7,18))
     ax = sns.heatmap(trimmed.pivot_table(columns = "iphi", index = "ieta", values = var).sort_index(ascending = False), cbar_kws={'label': var+" "+label})

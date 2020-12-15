@@ -13,47 +13,18 @@ from elmonk.dst import DstReader ### to read the DST files into pandas
 from tqdm import tqdm
 
 
-def load_ch(df_dstFiles, ch, year, green = False, run = -1, fed = -1): 
-    s_name = 'fname'
-    s_fed = 'FED'
-    if year == 2016: 
-        s_name = 'file'
-        s_fed = 'fed'
-    print( df_dstFiles)
-    if (run > -1): df_dstFiles = df_dstFiles[df_dstFiles['run'] == run]
-    if (fed > -1): df_dstFiles = df_dstFiles[df_dstFiles[s_fed] == fed]
-
-    if green: 
-        these_dstFiles = df_dstFiles[s_name].str.replace('.447.','.527.')
-        these_dstFiles = these_dstFiles[these_dstFiles.map(os.path.isfile)]
-
-    else: 
-        these_dstFiles = df_dstFiles[df_dstFiles[s_name].map(os.path.isfile)][s_name]
-
-    these_dstFiles = these_dstFiles[(these_dstFiles.map(os.path.getsize) > 0.)]
-
-    these_fed = df_dstFiles[s_fed] 
-    df_these_fed = pd.DataFrame({'index':these_fed.index, s_fed:these_fed.values})
-    df_chunk_xtal =[]
-    with tqdm(total=len(these_dstFiles), unit='entries') as pbar:
-        for i, block in enumerate(these_dstFiles):
-            db = load_dst(block, green, ch)
-            df_chunk_xtal.append(db)
-            pbar.update(1)
-
-    
-    df_xtal = pd.concat(df_chunk_xtal, axis = 0)
-    df_xtal.index = pd.RangeIndex(len(df_xtal.index))
-    df_xtal['FED'] = df_these_fed[s_fed]
-
-
-    return df_xtal
-
+def make_path(year, green, UL = True):
+    if year == 2018: 
+        fullpath = f'input/{year}/dstFiles.w447.csv' if not green else f'input/{year}/dstFiles.w527.csv'
+        if UL: 
+            fullpath = f'input/{year}/UL/dstFiles.w447.csv' if not green else f'input/{year}/UL/dstFiles.w527.csv'
+    return fullpath 
 
 
 def load_files(year, green):
-    basedir = Path(f'/eos/cms/store/group/dpg_ecal/alca_ecalcalib/laser/dst.hdf')
-    if year == 2018: fullpath = f'{year}/dstFiles.{year}.w447.csv' if not green else f'{year}/dstFiles.{year}.w527.csv'
+    fullpath = make_path(2018, green)
+    basedir = Path(f'/afs/cern.ch/user/c/camendol/LaserTiming')
+    
     print (basedir / fullpath)
     df_dstFiles = pd.read_csv(basedir / fullpath)
 
@@ -98,7 +69,7 @@ def load_dst_firstline(dst_name, isGreen):
     return info
 
 
-def load_firstline(df_dstFiles, year, green = False, run = -1, fed = -1, runlist = []): 
+def load_firstline(df_dstFiles, year, green = False, run = -1, fed = -1, runlist = [], var = None): 
     if not green: 
         filename = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/firstline_"+str(year)+"_"+str(fed)+".hdf"
     else: 
@@ -138,7 +109,8 @@ def load_firstline(df_dstFiles, year, green = False, run = -1, fed = -1, runlist
         df_info['FED'] = df_dstFiles[s_fed]
         df_info.to_hdf(filename, key="firstline", mode = "w")        
     else: 
-        df_info = pd.read_hdf(filename, key="firstline", mode = "r")
+        vars = [var, "run", "seq"] if var else None
+        df_info = pd.read_hdf(filename, key="firstline", mode = "r", columns = vars)
     print(df_info)
 
     if len(runlist) > 0: 
@@ -157,7 +129,7 @@ def load_dst_matacq(dst_name):
     return matacq
 
 
-def load_matacq(df_dstFiles, year, green = False, run = -1, fed = -1, runlist = []): 
+def load_matacq(df_dstFiles, year, green = False, run = -1, fed = -1, runlist = [], var = None): 
     filename = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/matacq_"+str(year)+"_"+str(fed)+".hdf"
     if green: filename = "/afs/cern.ch/work/c/camendol/LaserData/"+str(year)+"/matacq_"+str(year)+"_"+str(fed)+"_green.hdf"
     if not os.path.isfile(filename): 
@@ -180,7 +152,8 @@ def load_matacq(df_dstFiles, year, green = False, run = -1, fed = -1, runlist = 
         df['FED'] = fed
         df.to_hdf(filename, key="matacq", mode = "w")        
     else: 
-        df = pd.read_hdf(filename, key="matacq", mode = "r")
+        vars = [var, "run", "seq", "side"] if var else None
+        df = pd.read_hdf(filename, key="matacq", mode = "r", columns = vars)
 
 
     if len(runlist) > 0: 

@@ -25,10 +25,10 @@ ecal["iy"] = (ecal['iy'] - 1).mod(20) + 1
 
 ecal = ecal[ecal['FED']== args.fed]
 
-if args.iphimin > -1:   ecal = ecal[ecal['iy']    > args.iphimin]
-if args.ietamin > -999: ecal = ecal[ecal['ix']    > args.ietamin]
-if args.iphimax > -1:   ecal = ecal[ecal['iy']    < args.iphimax]
-if args.ietamax > -999: ecal = ecal[ecal['ix']    < args.ietamax]
+if args.iphimin > -1:   ecal = ecal[ecal['iy']   >= args.iphimin]
+if args.ietamin > -999: ecal = ecal[ecal['ix']   >= args.ietamin]
+if args.iphimax > -1:   ecal = ecal[ecal['iy']   <= args.iphimax]
+if args.ietamax > -999: ecal = ecal[ecal['ix']   <= args.ietamax]
 if args.side    > -1:   ecal = ecal[ecal['side'] == args.side]
 if args.TT      > -1:   ecal = ecal[ecal['ccu']  == args.TT]
 

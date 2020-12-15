@@ -7,11 +7,17 @@ import numpy as np
 import pandas as pd
 import os.path
 
+
+def make_path(year, green, UL = True):
+        if year == 2018: 
+                fullpath = f'{year}/dst.w447.hdf5' if not green else f'{year}/dst.w527.hdf5'        
+                if UL: fullpath = f'UL_{year}/dst.w447.hdf5' if not green else f'UL_{year}/dst.w527.hdf5'        
+        return fullpath
+
 def load_history(filename, year, write, basedir, FED, property = 'tAPD', green = False):
         if ((not os.path.isfile(filename)) or write):
-                if year == 2018: 
-                        fullpath = f'{year}/dst.{year}.w447.hdf5' if not green else f'{year}/dst.{year}.w527.hdf5'
-
+                fullpath = make_path(year, green)
+                print(fullpath)
                 data = HdfLaser(basedir / fullpath)
                 period = [f'{year}-04-01',f'{year}-12-31']
                 
@@ -91,7 +97,8 @@ def load_tmatacq(df, year, basedir, FED, rmin, rmax, green = False):
         2018-07-13 04:27:43  319579     0        XX   YY  ...
         ...                  ...        ...      ...  ... ...
         """
-        fullpath = f'{year}/dst.{year}.w447.hdf5' if not green else f'{year}/dst.{year}.w527.hdf5'
+        fullpath = make_path(year, green)
+        print (fullpath)
         matacq = pd.read_hdf((basedir / fullpath), 'Matacq')
 
         matacq = matacq[(matacq["FED"] == FED)]
@@ -100,9 +107,10 @@ def load_tmatacq(df, year, basedir, FED, rmin, rmax, green = False):
                 matacq = matacq.reset_index()
                 if rmin > -1: matacq = matacq[(matacq["run"] >= rmin)]
                 if rmax > -1: matacq = matacq[(matacq["run"] <= rmax)]
-                
+        print (matacq)                
 
         df_tmatacq = df.copy()
+
         df_tmatacq["tstart0"]  = df_tmatacq.reset_index().set_index(["run","seq"]).index.map(matacq[(matacq["side"] == 0)].set_index(["run", "seq"]).tstart)
         df_tmatacq["tstart1"]  = df_tmatacq.reset_index().set_index(["run","seq"]).index.map(matacq[(matacq["side"] == 1)].set_index(["run", "seq"]).tstart)
 
@@ -113,6 +121,11 @@ def load_tmatacq(df, year, basedir, FED, rmin, rmax, green = False):
         if any(df_tmatacq.columns.get_level_values('side') == 1):        df_tmatacq.loc[:, idx[:,:,:,(df_tmatacq.columns.get_level_values('side') == 1)]] = df_tmatacq.tstart1
 
         df_tmatacq = df_tmatacq.drop(columns = ["tstart1", "tstart0"])
+        print (df_tmatacq)
+        first_idx = df_tmatacq.sort_index().first_valid_index()
+        df_tmatacq = df_tmatacq.sub(df_tmatacq.loc[first_idx])
+        print(df_tmatacq)
+
         return df_tmatacq
         
 def subtract_tmatacq(df, year, basedir, FED, green = False):
@@ -125,7 +138,7 @@ def subtract_tmatacq(df, year, basedir, FED, green = False):
         2018-07-13 04:27:43  319579     0        XX   YY  ...
         ...                  ...        ...      ...  ... ...
         """
-        fullpath = f'{year}/dst.{year}.w447.hdf5' if not green else f'{year}/dst.{year}.w527.hdf5'
+        fullpath = make_path(year, green)
         matacq = pd.read_hdf((basedir / fullpath), 'Matacq')
         matacq = matacq[(matacq["FED"] == FED)]
         df["tstart0"]  = df.reset_index().set_index(["run","seq"]).index.map(matacq[(matacq["side"] == 0)].set_index(["run", "seq"]).tstart)
@@ -134,8 +147,11 @@ def subtract_tmatacq(df, year, basedir, FED, green = False):
         #convert to ns and subtract matacq for side 1 and 0 
         df.iloc[:, :-2] = df.iloc[:, :-2] * 25 #conv times to ns (except for matacq columns)
         idx = pd.IndexSlice
+
+        print (df.loc[:, idx[:,:,:,(df.columns.get_level_values('side') == 1)]])
         df.loc[:, idx[:,:,:,(df.columns.get_level_values('side') == 1)]] = df.sub(df.tstart1, axis = 0) + 1390 #1390 is some random offset
         df.loc[:, idx[:,:,:,(df.columns.get_level_values('side') == 0)]] = df.sub(df.tstart0, axis = 0) + 1390 #1390 is some random offset
+        print(df.loc[:, idx[:,:,:,(df.columns.get_level_values('side') == 1)]])
         df = df.drop(columns = ["tstart1", "tstart0"])
         return df
 
@@ -158,7 +174,7 @@ def skim_history(df, table_content, year, args, basedir = "", FED = -1, sub_tmat
         df = df.reset_index().set_index(["date","seq","run"])
         df = df.T.reset_index()
         df = append_idxs(df, args.ch, args.ietamin, args.ietamax, args.iphimin, args.iphimax, args.side, args.TT).T
-        
+
         if table_content == "time": 
                 if sub_tmatacq: 
                         df = subtract_tmatacq(df, year, basedir, FED)
@@ -170,16 +186,15 @@ def skim_history(df, table_content, year, args, basedir = "", FED = -1, sub_tmat
                 if args.rmin > -1: df = df[(df["run"] >= args.rmin)]
                 if args.rmax > -1: df = df[(df["run"] <= args.rmax)]
                 df = df.reset_index().set_index(["date", "run","seq"])
-                
-        first_run = df.reset_index().run.drop_duplicates().sort_values().tolist()[0]
-        first = df.copy().reset_index().set_index("date")
-        first = first[((first["run"] == first_run) & (first["seq"] == 0))] #FIXME
-        first = first.reset_index().set_index(["date", "run","seq"])
-        
+
+        first_idx = df.sort_index().first_valid_index()
+        first = df.loc[[first_idx]]
+
         df = df.reset_index().set_index(["date", "run","seq"])
 
         if table_content == "time":   df = df.T.sub(first.T[first.T.columns[0]], axis = 0).T
         if table_content == "APD_PN": df = df.T.divide(first.T[first.T.columns[0]], axis = 0).T
+
         return df
         
 def stack_history(df):

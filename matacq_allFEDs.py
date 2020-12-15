@@ -50,7 +50,7 @@ else:
 matacq_list = []
 firstline_list = []
 FEDs = [x for x in range(610, 644) if not x == 625]
-runlist = [313800, 314750]
+runlist = [313800, 324750]
 
 
 for fed in FEDs:

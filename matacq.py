@@ -12,27 +12,19 @@ import argparse
 import modules.load as load
 import glob
 
+import scipy.stats as stats
+
 parser = argparse.ArgumentParser(description='Command line parser of plotting options')
 
-parser.add_argument('--year', dest='year',type=int, help='which year', default=2018)
-parser.add_argument('--fed',  dest='fed', type=int, help='which fed', default=610)
-parser.add_argument('--green',  dest='green', help='green',action='store_true', default = False)
-
+parser.add_argument('--year',  dest='year',  type=int,     help='which year',   default=2018)
+parser.add_argument('--fed',   dest='fed',   type=int,     help='which fed',    default=610)
+parser.add_argument('--green', dest='green', help='green', action='store_true', default = False)
 
 args = parser.parse_args()
 
-
 year = args.year
 
-#dst_filelist = load.load_files(year, args.green)
-root_dir = "/eos/cms/store/group/dpg_ecal/alca_ecalcalib/laser/dst.merged/2018/"
-
-dst_filelist = []
-for filename in glob.iglob(root_dir + '**/*.corlinpn', recursive=True):
-     if not args.green:
-          if "447" in filename: dst_filelist.append(filename)
-     else:
-          if "527" in filename: dst_filelist.append(filename)
+dst_filelist = load.load_files(year, args.green)
 
 runlist = [313800, 314750]
 
@@ -69,15 +61,16 @@ for v in var:
                print ("T < 21.5")
                gr_low  = gr[gr["temperature"] < 21.5][v]
                z_scores_low = stats.zscore(gr_low)
-               abs_z_scores_low = np.abs(z_scores)
-               filtered_entries_low = (abs_z_scores_low < 3).all(axis=1)
+               abs_z_scores_low = np.abs(z_scores_low)
+               filtered_entries_low = (abs_z_scores_low < 3)
+
                gr_low = gr_low[filtered_entries_low]
 
                print ("T > 22")
                gr_high = gr[gr["temperature"] > 22][v]
                z_scores_high = stats.zscore(gr_high)
-               abs_z_scores_high = np.abs(z_scores)
-               filtered_entries_high = (abs_z_scores_high < 3).all(axis=1)
+               abs_z_scores_high = np.abs(z_scores_high)
+               filtered_entries_high = (abs_z_scores_high < 3)
                gr_high = gr_high[filtered_entries_high]
 
                ax.plot(gr_low.index, gr_low  , marker=".", markersize = 1, linestyle = "--", label = "T < 21.5 $^\cdot$C, TCDS = %f MHz" % gr["TCDS"].mean())
@@ -97,6 +90,6 @@ for v in var:
      fig.savefig("/eos/home-c/camendol/www/LaserTiming/"+directory+"/"+subfolder+str(FED)+"/"+str(v)+".png",bbox_inches='tight')
 
 
-input()
+
 
 
