@@ -6,7 +6,7 @@ import ecalic
 import numpy as np
 import pandas as pd
 import os.path
-
+import sys
 
 def make_path(year, green, UL = True):
         if year == 2018: 
@@ -107,7 +107,6 @@ def load_tmatacq(df, year, basedir, FED, rmin, rmax, green = False):
                 matacq = matacq.reset_index()
                 if rmin > -1: matacq = matacq[(matacq["run"] >= rmin)]
                 if rmax > -1: matacq = matacq[(matacq["run"] <= rmax)]
-        print (matacq)                
 
         df_tmatacq = df.copy()
 
@@ -121,10 +120,8 @@ def load_tmatacq(df, year, basedir, FED, rmin, rmax, green = False):
         if any(df_tmatacq.columns.get_level_values('side') == 1):        df_tmatacq.loc[:, idx[:,:,:,(df_tmatacq.columns.get_level_values('side') == 1)]] = df_tmatacq.tstart1
 
         df_tmatacq = df_tmatacq.drop(columns = ["tstart1", "tstart0"])
-        print (df_tmatacq)
         first_idx = df_tmatacq.sort_index().first_valid_index()
         df_tmatacq = df_tmatacq.sub(df_tmatacq.loc[first_idx])
-        print(df_tmatacq)
 
         return df_tmatacq
         
@@ -148,11 +145,10 @@ def subtract_tmatacq(df, year, basedir, FED, green = False):
         df.iloc[:, :-2] = df.iloc[:, :-2] * 25 #conv times to ns (except for matacq columns)
         idx = pd.IndexSlice
 
-        print (df.loc[:, idx[:,:,:,(df.columns.get_level_values('side') == 1)]])
         df.loc[:, idx[:,:,:,(df.columns.get_level_values('side') == 1)]] = df.sub(df.tstart1, axis = 0) + 1390 #1390 is some random offset
         df.loc[:, idx[:,:,:,(df.columns.get_level_values('side') == 0)]] = df.sub(df.tstart0, axis = 0) + 1390 #1390 is some random offset
-        print(df.loc[:, idx[:,:,:,(df.columns.get_level_values('side') == 1)]])
         df = df.drop(columns = ["tstart1", "tstart0"])
+        matacq = pd.DataFrame()
         return df
 
 
@@ -163,8 +159,7 @@ def skim_history(df, table_content, year, args, basedir = "", FED = -1, sub_tmat
         * timing history: subtract matacq for blue laser, subtract first run
         * APD history:    divide by first run
         
-        Returns df in the format 
-        
+        Returns df in the format         
                                                              <this_table>    
         date                 run        seq      (id_xtal)   
         2018-07-13 04:27:43  319579     0        0           XX
@@ -201,3 +196,25 @@ def stack_history(df):
         df = df.reset_index().set_index(["date","run", "seq"]).T.reset_index().set_index("xtal_id").drop(columns= ["iphi", "ieta","side", "TT"]).T
         df = df.reset_index().set_index(["date","run", "seq"]).stack().reset_index().set_index(["date","run", "seq", "xtal_id"]) #stack crystals
         return df
+
+
+
+def select_era(df, year, era):
+        """
+        Selects era by run number
+        """
+
+        run_range = []
+        if year == 2018:
+                if era == "A": run_range = [315252,316995]
+                if era == "B": run_range = [316998,319312]
+                if era == "C": run_range = [319313,320393]
+                if era == "D": run_range = [320394,325273]
+                
+        if len(run_range) == 0: sys.exit("!!! Era " + era + " not in " + year)
+        df = df[(df["run"] >= run_range[0]) & (df["run"] <= run_range[1])]
+        return df
+
+
+
+
