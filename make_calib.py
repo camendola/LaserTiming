@@ -1,5 +1,4 @@
 import pandas as pd
-from root_pandas import read_root
 import warnings
 warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
 
@@ -12,28 +11,7 @@ sys.path.append('../')
 import shutil
 
 from elmonk.dst import DstReader ### to read the DST files into pandas
-import seaborn as sns
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-import matplotlib.patches as patches
-
 import ecalic 
-
-import glob
-
-from pylab import *
-from scipy.optimize import curve_fit
-import statistics
-
-mpl.rcParams['axes.linewidth'] = 2
-mpl.rcParams['axes.formatter.useoffset'] = False
-
-mpl.rcParams['xtick.direction'] = 'in'
-mpl.rcParams['ytick.direction'] = 'in'
-mpl.rcParams["ytick.right"] = True
-mpl.rcParams["xtick.top"] = True
-
-#from elmonk.common.helper import scalar_to_list, make_index
 
 import argparse
 
@@ -76,7 +54,7 @@ if args.fed == 628: FEDs = [fed for fed in range(628, 646)] #EB+
 
 all_histories = []
 for FED in FEDs:
-    print ("@ Loading FED"+FED+"...")
+    print ("@ Loading FED"+str(FED)+"...")
 
     filename = workdir + "FED_"+str(FED)+".hdf"
 
@@ -106,13 +84,11 @@ for FED in FEDs:
         
     
     histories["TCDS"] = histories.reset_index().set_index(["run","seq"]).index.map(df_firstline.reset_index().set_index(["run", "seq"]).TCDS)/1000000. # LHC freq [MHz]
-    
     histories = histories.reset_index().set_index("date")
-    
     histories.columns = ['run','seq','temperature','xtal_id', 'time', 'TCDS'] 
-    
     histories = histories[(histories['time'] > -1.2) & (histories['time'] < 1.2)] 
     
+    # correction from fit
     ranges = [40.0784, 40.0785, 40.0789, 40.07897, 40.0790, 40.07915, 40.0793] #TCDS ranges
     TCDSnames = ["TCDS"+str(i) for i in range (1,7)]
     fitfile = "fits_results/temperature/FEDX_ch_split_rootfit"
@@ -127,7 +103,6 @@ for FED in FEDs:
     df = df.reset_index().set_index("ch")
     df = df[(df["FED"] > 609)]
 
-    
     histories.dropna()
 
     i = 0
@@ -148,11 +123,10 @@ for FED in FEDs:
     del grs
 
     histories = histories.reset_index().set_index("date")
-
     first_idx = histories["time"].first_valid_index()
-    
     first = histories["time"].loc[first_idx]
 
+    # geometry
     histories = histories.reset_index().set_index("xtal_id")
     ecal = ecalic.icCMS().iov
     ecal = ecal[(ecal['FED']  == FED)]
@@ -162,8 +136,6 @@ for FED in FEDs:
     histories = histories.reset_index()  
     
     histories = histories.drop(columns = ["xtal_id"])
-
-
     all_histories.append(histories)
 
 histories = pd.concat(all_histories)
@@ -171,7 +143,6 @@ del all_histories
 
 print ("@ IOVs size: ")
 print (histories.groupby(["run", "seq"]).size())
-
 
 i = 0
 iov = 0
@@ -181,18 +152,17 @@ for grname, gr in histories.groupby(["run", "seq"]):
     gr = gr[~gr.index.duplicated(keep='first')]
     gr["part"] = 0
     
-
     gr["date"] = gr.date.values.astype(np.int64) // 10 ** 9
     idx = gr["date"].first_valid_index()
     print(idx)
 
     iov = gr["date"].loc[idx].item()
-    print(iov)
+
     gr["ieta"] = gr["ieta"].astype("int") 
     gr["iphi"] = gr["iphi"].astype("int") 
     gr["part"] = gr["part"].astype("int") 
     gr["zero"] =  gr["part"].astype("float")
-    gr[["ieta", "iphi", "part", "time", "zero"]].to_csv("/afs/cern.ch/work/c/camendol/LaserIOVs/"+str(year)+"/"+args.era+"/IOV_"+str(iov)+"_"+str(args.fed)+".txt", index = False, sep = " ", header = False)
-    print("Saved in /afs/cern.ch/work/c/camendol/LaserIOVs/"+str(year)+"/"+args.era+"/IOV_"+str(iov)+"_"+str(args.fed)+".txt")
+    gr[["ieta", "iphi", "part", "time", "zero"]].to_csv("/afs/cern.ch/work/c/camendol/LaserIOVs/"+str(year)+"/"+args.era+"/IOV"+("g" if args.isgreen else "b")+"_"+str(iov)+"_"+str(args.fed)+".txt", index = False, sep = " ", header = False)
+    print("Saved in /afs/cern.ch/work/c/camendol/LaserIOVs/"+str(year)+"/"+args.era+"/IOV"+("g" if args.isgreen else "b")+"_"+str(iov)+"_"+str(args.fed)+".txt")
     i += 1
     
