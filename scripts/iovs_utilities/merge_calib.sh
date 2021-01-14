@@ -1,6 +1,6 @@
-for iov in /afs/cern.ch/work/c/camendol/LaserIOVs/*
+for iov in /afs/cern.ch/work/c/camendol/LaserIOVs/2018/B/*
 do 
-if [ ${iov: -8} == "_641.txt" ]
+if [ ${iov: -8} == "_610.txt" ]
 then
 iov=${iov%.*}
 pattern=$(echo $iov | sed 's/_[0-9]\+$//')

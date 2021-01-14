@@ -1,9 +1,9 @@
 import pandas as pd
 import os
 
-#directory = '/afs/cern.ch/user/f/ferriff/public/ForChiaraA/EcalTimeCalibConstants_UL_Run1_Run2_v1/'
 
-directory= "/afs/cern.ch/work/c/camendol/LaserIOVs/"
+
+directory= "/afs/cern.ch/work/c/camendol/LaserIOVs/2018/B/"
 i = 0
 for filename in os.listdir(directory):
 
