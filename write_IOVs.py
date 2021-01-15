@@ -52,6 +52,10 @@ FEDs = [fed for fed in range(610, 646)]
 if args.fed == 610: FEDs = [fed for fed in range(610, 628)] #EB- 
 if args.fed == 628: FEDs = [fed for fed in range(628, 646)] #EB+
 
+if args.isgreen: 
+    for fed in [612,613,616,618,619,631,636]: 
+        if fed in FEDs: FEDs.remove(fed)
+
 all_histories = []
 for FED in FEDs:
     print ("@ Loading FED"+str(FED)+"...")
@@ -60,6 +64,7 @@ for FED in FEDs:
 
     #get timing
     histories = pd.read_hdf(filename,key = "hist", mode = "r")
+
     histories = load_hdf.select_era(histories.reset_index().set_index(["date","seq"]), year, args.era).reset_index().set_index(["date","run", "seq"])
     histories = load_hdf.skim_history(histories, "time", year, args, basedir, FED, not args.isgreen)
     histories = load_hdf.stack_history(histories).reset_index().set_index(["date","run", "seq"])
@@ -86,7 +91,7 @@ for FED in FEDs:
     histories["TCDS"] = histories.reset_index().set_index(["run","seq"]).index.map(df_firstline.reset_index().set_index(["run", "seq"]).TCDS)/1000000. # LHC freq [MHz]
     histories = histories.reset_index().set_index("date")
     histories.columns = ['run','seq','temperature','xtal_id', 'time', 'TCDS'] 
-    histories = histories[(histories['time'] > -1.2) & (histories['time'] < 1.2)] 
+    histories = histories[(histories['time'] > -3.5) & (histories['time'] < 3.5)] 
     
     # correction from fit
     ranges = [40.0784, 40.0785, 40.0789, 40.07897, 40.0790, 40.07915, 40.0793] #TCDS ranges
