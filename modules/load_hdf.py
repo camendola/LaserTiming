@@ -165,7 +165,6 @@ def skim_history(df, table_content, year, args, basedir = "", FED = -1, sub_tmat
         2018-07-13 04:27:43  319579     0        0           XX
         ...                  ...        ...      ...         ...
         """
-
         df = df.reset_index().set_index(["date","seq","run"])
         df = df.T.reset_index()
         df = append_idxs(df, args.ch, args.ietamin, args.ietamax, args.iphimin, args.iphimax, args.side, args.TT).T
@@ -183,12 +182,21 @@ def skim_history(df, table_content, year, args, basedir = "", FED = -1, sub_tmat
                 df = df.reset_index().set_index(["date", "run","seq"])
 
         first_idx = df.sort_index().first_valid_index()
+
         first = df.loc[[first_idx]]
 
         df = df.reset_index().set_index(["date", "run","seq"])
 
         if table_content == "time":   df = df.T.sub(first.T[first.T.columns[0]], axis = 0).T
         if table_content == "APD_PN": df = df.T.divide(first.T[first.T.columns[0]], axis = 0).T
+
+        if args.time > -1:
+                df = df.reset_index().set_index(["run", "seq"])
+                print (df["date"].astype(np.int64) // 10 ** 9)
+                df = df[((df["date"].astype(np.int64) // 10 ** 9) <= args.time)]
+                last_idx = df.sort_index().last_valid_index()
+                df = df.loc[[last_idx]]
+                df = df.reset_index().set_index(["date", "run","seq"])
 
         return df
         
@@ -199,7 +207,7 @@ def stack_history(df):
 
 
 
-def select_era(df, year, era):
+def select_era(df, year, era, splits, split):
         """
         Selects era by run number
         """
@@ -213,6 +221,7 @@ def select_era(df, year, era):
                 
         if len(run_range) == 0: sys.exit("!!! Era " + era + " not in " + year)
         df = df[(df["run"] >= run_range[0]) & (df["run"] <= run_range[1])]
+        if splits > -1: df = np.array_split(df, splits)[split]
         return df
 
 

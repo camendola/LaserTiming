@@ -11,6 +11,10 @@ sys.path.append('../')
 import shutil
 
 from elmonk.dst import DstReader ### to read the DST files into pandas
+import seaborn as sns
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+
 import ecalic 
 
 import argparse
@@ -20,11 +24,21 @@ import modules.load as load                   # methods for dst files
 import modules.write_csv as write_csv        
 
 
+mpl.rcParams['axes.linewidth'] = 2
+mpl.rcParams['axes.formatter.useoffset'] = False
+
+mpl.rcParams['xtick.direction'] = 'in'
+mpl.rcParams['ytick.direction'] = 'in'
+mpl.rcParams["ytick.right"] = True
+mpl.rcParams["xtick.top"] = True
+
+
 parser = argparse.ArgumentParser(description='Command line parser of plotting options')
 
 parser.add_argument('--fed',     dest='fed',       type=int, help='fed',      default=None)
 parser.add_argument('--ch',      dest='ch',        type=int, help='ch',       default=-1)
 parser.add_argument('--rmin',    dest='rmin',      type=int, help='rmin',     default=-1)
+parser.add_argument('--time',    dest='time',      type=int, help='time',     default=-1)
 parser.add_argument('--rmax',    dest='rmax',      type=int, help='rmax',     default=-1)
 parser.add_argument('--ietamin', dest='ietamin',   type=int, help='ietamin',  default=-999)
 parser.add_argument('--ietamax', dest='ietamax',   type=int, help='ietamax',  default=-999)
@@ -33,6 +47,8 @@ parser.add_argument('--iphimax', dest='iphimax',   type=int, help='iphimax',  de
 parser.add_argument('--TT',      dest='TT',        type=int, help='TT',       default=-999)
 parser.add_argument('--side',    dest='side',      type=int, help='side',     default=-1)
 parser.add_argument('--era',    dest='era',        help='era',     default="A")
+parser.add_argument('--splits',    dest='splits',    type=int,    help='splits',     default=-1)
+parser.add_argument('--split',    dest='split',    type=int,    help='split',     default=-1)
 
 parser.add_argument('--dump',    dest='dump',      help='dump tables',                    default=False,  action ='store_true')
 parser.add_argument('--show',    dest='show',      help='show plots',                     default=False,  action ='store_true')
@@ -65,8 +81,9 @@ for FED in FEDs:
     #get timing
     histories = pd.read_hdf(filename,key = "hist", mode = "r")
 
-    histories = load_hdf.select_era(histories.reset_index().set_index(["date","seq"]), year, args.era).reset_index().set_index(["date","run", "seq"])
     histories = load_hdf.skim_history(histories, "time", year, args, basedir, FED, not args.isgreen)
+    histories = load_hdf.select_era(histories.reset_index().set_index(["date","seq"]), year, args.era, args.splits, args.split).reset_index().set_index(["date","run", "seq"])
+    print(histories)
     histories = load_hdf.stack_history(histories).reset_index().set_index(["date","run", "seq"])
     histories.columns = ["xtal_id", "time"]
 
@@ -152,22 +169,27 @@ print (histories.groupby(["run", "seq"]).size())
 i = 0
 iov = 0
 print ("@ Saving IOVs...")
+if (args.time > - 1):
+    fig, ax = plt.subplots(figsize= (7, 18))
+    sns.heatmap(histories.pivot_table(columns = "iphi", index = "ieta", values = "time").sort_index(ascending = False), cbar_kws={'label': "$\Delta (t_{xtal} - t_{MATACQ})$ [ns]"}, ax = ax)
+    ax.set(xlabel='i$\phi$', ylabel='i$\eta$')
+    fig.show()
+    
+input()
 for grname, gr in histories.groupby(["run", "seq"]):
-    print(gr)
     gr = gr[~gr.index.duplicated(keep='first')]
     gr["part"] = 0
     
     gr["date"] = gr.date.values.astype(np.int64) // 10 ** 9
     idx = gr["date"].first_valid_index()
-    print(idx)
-
+    
     iov = gr["date"].loc[idx].item()
 
     gr["ieta"] = gr["ieta"].astype("int") 
     gr["iphi"] = gr["iphi"].astype("int") 
     gr["part"] = gr["part"].astype("int") 
     gr["zero"] =  gr["part"].astype("float")
-    gr[["ieta", "iphi", "part", "time", "zero"]].to_csv("/afs/cern.ch/work/c/camendol/LaserIOVs/"+str(year)+"/"+args.era+"/IOV"+("g" if args.isgreen else "b")+"_"+str(iov)+"_"+str(args.fed)+".txt", index = False, sep = " ", header = False)
-    print("Saved in /afs/cern.ch/work/c/camendol/LaserIOVs/"+str(year)+"/"+args.era+"/IOV"+("g" if args.isgreen else "b")+"_"+str(iov)+"_"+str(args.fed)+".txt")
+    gr[["ieta", "iphi", "part", "time", "zero"]].to_csv("/afs/cern.ch/work/c/camendol/LaserIOVs_new/"+str(year)+"/"+args.era+"/IOV"+("g" if args.isgreen else "b")+"_"+str(iov)+"_"+str(args.fed)+".txt", index = False, sep = " ", header = False)
+    print("Saved in /afs/cern.ch/work/c/camendol/LaserIOVs_new/"+str(year)+"/"+args.era+"/IOV"+("g" if args.isgreen else "b")+"_"+str(iov)+"_"+str(args.fed)+".txt")
     i += 1
     
